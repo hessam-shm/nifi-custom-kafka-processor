@@ -4,10 +4,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroSerializerConfig;
 import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.JsonEncoder;
+import org.apache.avro.io.NoWrappingJsonEncoder;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.annotation.behavior.ReadsAttribute;
@@ -29,7 +35,6 @@ import org.apache.nifi.processor.util.StandardValidators;
 
 import java.io.*;
 import java.util.*;
-import java.util.regex.Pattern;
 
 @Tags({"customKafkaProcessor"})
 @CapabilityDescription("Provide a description")
@@ -82,25 +87,32 @@ public class MyProcessor extends AbstractProcessor {
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
         FlowFile flowFile = session.get();
-        if (flowFile == null) {
+        /*if (flowFile == null) {
             return;
+        }*/
+
+        KafkaConsumer<GenericRecord, GenericData.Record> consumer = createConsumer();
+
+        while(true){
+            ConsumerRecords<GenericRecord, GenericData.Record> records = consumer.poll(1000);
+            records.forEach(record -> {
+                try{
+                    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                    NoWrappingJsonEncoder jsonEncoder = new NoWrappingJsonEncoder(record.value().getSchema(), outputStream);
+                    DatumWriter<GenericRecord> writer = new GenericDatumWriter<>(record.value().getSchema());
+                    writer.write(record.value(),jsonEncoder);
+                    jsonEncoder.flush();
+                } catch (IOException e){
+
+                }
+
+
+            });
+            consumer.commitAsync();
         }
 
         try {
-            flowFile = session.write(flowFile, (rawIn, rawOut) -> {
-                try (final InputStream in = new BufferedInputStream(rawIn); final OutputStream out =
-                        new BufferedOutputStream(rawOut)) {
 
-                    // Convert input stream flow file into a byte array
-                    byte[] input = toByteArray(in);
-
-                    // Extract fields out of input
-                    Map<String, String> extracted = extractFields(input);
-
-                    // Write json bytes into output
-                    out.write(objectMapper.writeValueAsBytes(extracted));
-                }
-            });
         } catch (ProcessException pe) {
             getLogger().error("Failed to deserialize {}", new Object[]{flowFile, pe});
             session.transfer(flowFile, REL_FAILURE);
@@ -149,7 +161,6 @@ public class MyProcessor extends AbstractProcessor {
         consumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
         return consumerProperties;
-
     }
 
 }
