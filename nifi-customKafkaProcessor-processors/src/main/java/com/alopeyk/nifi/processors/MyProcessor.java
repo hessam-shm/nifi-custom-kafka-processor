@@ -31,7 +31,9 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.ProcessorInitializationContext;
 import org.apache.nifi.processor.Relationship;
+import org.apache.nifi.processor.io.OutputStreamCallback;
 import org.apache.nifi.processor.util.StandardValidators;
+import tech.allegro.schema.json2avro.converter.JsonAvroConverter;
 
 import java.io.*;
 import java.util.*;
@@ -86,72 +88,44 @@ public class MyProcessor extends AbstractProcessor {
 
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
-        FlowFile flowFile = session.get();
+
         /*if (flowFile == null) {
             return;
         }*/
 
         KafkaConsumer<GenericRecord, GenericData.Record> consumer = createConsumer();
 
-        while(true){
+        while (true) {
             ConsumerRecords<GenericRecord, GenericData.Record> records = consumer.poll(1000);
             records.forEach(record -> {
-                try{
-                    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                    NoWrappingJsonEncoder jsonEncoder = new NoWrappingJsonEncoder(record.value().getSchema(), outputStream);
-                    DatumWriter<GenericRecord> writer = new GenericDatumWriter<>(record.value().getSchema());
-                    writer.write(record.value(),jsonEncoder);
-                    jsonEncoder.flush();
-                } catch (IOException e){
-
+                FlowFile flowFile = session.get();
+                try {
+                    JsonAvroConverter jsonAvroConverter = new JsonAvroConverter();
+                    byte[] jsonFile = jsonAvroConverter.convertToJson(record.value());
+                    flowFile = session.write(flowFile, outputStream -> {
+                        outputStream.write(jsonFile);
+                    });
+                    flowFile = session.putAttribute(flowFile, CoreAttributes.MIME_TYPE.key(), "application/json");
+                } catch (Exception e){
+                    session.transfer(flowFile, REL_FAILURE);
                 }
-
-
+                session.transfer(flowFile, REL_SUCCESS);
             });
-            consumer.commitAsync();
+            consumer.commitSync();
         }
-
-        try {
-
-        } catch (ProcessException pe) {
-            getLogger().error("Failed to deserialize {}", new Object[]{flowFile, pe});
-            session.transfer(flowFile, REL_FAILURE);
-            return;
-        }
-
-        flowFile = session.putAttribute(flowFile, CoreAttributes.MIME_TYPE.key(), "application/json");
-        session.transfer(flowFile, REL_SUCCESS);
     }
 
-    private Map<String, String> extractFields(final byte[] input) {
-        // extract fields out of the byte array inout
-        return new HashMap<>();
-    }
-
-
-    private byte[] toByteArray(final InputStream in) throws IOException {
-        ByteArrayOutputStream os = new ByteArrayOutputStream();
-        byte[] buffer = new byte[1024];
-        int len;
-
-        while ((len = in.read(buffer)) != -1) {
-            os.write(buffer, 0, len);
-        }
-
-        return os.toByteArray();
-    }
-
-    private static KafkaConsumer<GenericRecord, GenericData.Record> createConsumer(){
+    private static KafkaConsumer<GenericRecord, GenericData.Record> createConsumer() {
         KafkaConsumer<GenericRecord, GenericData.Record> consumer = new KafkaConsumer<>(configConsumerProperties());
         consumer.subscribe(Collections.singletonList("mysql.alopeyk.orders"));
         return consumer;
     }
 
-    private static Properties configConsumerProperties(){
+    private static Properties configConsumerProperties() {
 
         Properties consumerProperties = new Properties();
 
-        consumerProperties.put(KafkaAvroSerializerConfig.SCHEMA_REGISTRY_URL_CONFIG,"http://172.16.2.220:8081");
+        consumerProperties.put(KafkaAvroSerializerConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://172.16.2.220:8081");
         consumerProperties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "http://172.16.2.231:9092," +
                 "http://172.16.2.232:9092,http://172.16.2.220:9092,http://172.16.2.221:9092," +
                 "http://172.16.2.205:9092,http://172.16.2.219:9092");
