@@ -39,11 +39,11 @@ import java.io.*;
 import java.util.*;
 
 @Tags({"customKafkaProcessor"})
-@CapabilityDescription("Provide a description")
+@CapabilityDescription("Consume avro files of kafka and produces json")
 @SeeAlso({})
 @ReadsAttributes({@ReadsAttribute(attribute = "", description = "")})
 @WritesAttributes({@WritesAttribute(attribute = "", description = "")})
-public class MyProcessor extends AbstractProcessor {
+public class CustomKafkaProcessor extends AbstractProcessor {
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("REL_SUCCESS")
