@@ -107,6 +107,10 @@ public class CustomKafkaProcessor extends AbstractProcessor {
                     });
                     flowFile = session.putAttribute(flowFile, CoreAttributes.MIME_TYPE.key(), "application/json");
                 } catch (Exception e){
+                    getLogger().error("Error happened");
+                    getLogger().error(flowFile.toString());
+                    getLogger().error(Long.toString(flowFile.getSize()));
+                    getLogger().error(session.toString());
                     session.transfer(flowFile, REL_FAILURE);
                 }
                 session.transfer(flowFile, REL_SUCCESS);
