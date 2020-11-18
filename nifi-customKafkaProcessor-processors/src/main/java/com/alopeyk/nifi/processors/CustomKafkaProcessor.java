@@ -102,15 +102,15 @@ public class CustomKafkaProcessor extends AbstractProcessor {
                 try {
                     JsonAvroConverter jsonAvroConverter = new JsonAvroConverter();
                     byte[] jsonFile = jsonAvroConverter.convertToJson(record.value());
+                    getLogger().error(new String(jsonFile));
                     flowFile = session.write(flowFile, outputStream -> {
                         outputStream.write(jsonFile);
                     });
+                    getLogger().error(session.toString());
+                    getLogger().error(flowFile.toString());
                     flowFile = session.putAttribute(flowFile, CoreAttributes.MIME_TYPE.key(), "application/json");
                 } catch (Exception e){
                     getLogger().error("Error happened");
-                    getLogger().error(flowFile.toString());
-                    getLogger().error(Long.toString(flowFile.getSize()));
-                    getLogger().error(session.toString());
                     session.transfer(flowFile, REL_FAILURE);
                 }
                 session.transfer(flowFile, REL_SUCCESS);
