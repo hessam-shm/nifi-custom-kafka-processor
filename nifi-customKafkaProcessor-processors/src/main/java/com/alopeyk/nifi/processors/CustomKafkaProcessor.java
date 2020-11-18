@@ -89,31 +89,34 @@ public class CustomKafkaProcessor extends AbstractProcessor {
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
 
-        /*if (flowFile == null) {
+        final FlowFile flowFile = session.get();
+        if (flowFile == null) {
+            getLogger().error("in flowFile check ");
+            getLogger().error(session.toString());
             return;
-        }*/
+        }
 
         KafkaConsumer<GenericRecord, GenericData.Record> consumer = createConsumer();
 
         while (true) {
             ConsumerRecords<GenericRecord, GenericData.Record> records = consumer.poll(1000);
             records.forEach(record -> {
-                FlowFile flowFile = session.get();
+                FlowFile ff = flowFile;
                 try {
                     JsonAvroConverter jsonAvroConverter = new JsonAvroConverter();
                     byte[] jsonFile = jsonAvroConverter.convertToJson(record.value());
                     getLogger().error(new String(jsonFile));
-                    flowFile = session.write(flowFile, outputStream -> {
+                    ff = session.write(ff, outputStream -> {
                         outputStream.write(jsonFile);
                     });
                     getLogger().error(session.toString());
-                    getLogger().error(flowFile.toString());
-                    flowFile = session.putAttribute(flowFile, CoreAttributes.MIME_TYPE.key(), "application/json");
+                    getLogger().error(ff.toString());
+                    ff = session.putAttribute(ff, CoreAttributes.MIME_TYPE.key(), "application/json");
                 } catch (Exception e){
                     getLogger().error("Error happened");
-                    session.transfer(flowFile, REL_FAILURE);
+                    session.transfer(ff, REL_FAILURE);
                 }
-                session.transfer(flowFile, REL_SUCCESS);
+                session.transfer(ff, REL_SUCCESS);
             });
             consumer.commitSync();
         }
