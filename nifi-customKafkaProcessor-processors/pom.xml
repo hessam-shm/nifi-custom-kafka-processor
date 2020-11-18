@@ -25,11 +25,16 @@
     <artifactId>nifi-customKafkaProcessor-processors</artifactId>
     <packaging>jar</packaging>
 
+    <properties>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.source>1.8</maven.compiler.source>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.xerial.snappy</groupId>
             <artifactId>snappy-java</artifactId>
-            <version>1.1.7.7</version>
+            <version>1.1.8.1</version>
         </dependency>
         <dependency>
             <groupId>org.apache.kafka</groupId>
