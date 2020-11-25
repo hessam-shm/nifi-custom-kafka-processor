@@ -3,7 +3,9 @@ package com.alopeyk.nifi.processors;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroSerializerConfig;
+import org.apache.avro.file.DataFileStream;
 import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.DatumWriter;
@@ -36,6 +38,10 @@ import org.apache.nifi.processor.util.StandardValidators;
 import tech.allegro.schema.json2avro.converter.JsonAvroConverter;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.*;
 
 @Tags({"customKafkaProcessor"})
@@ -44,6 +50,8 @@ import java.util.*;
 @ReadsAttributes({@ReadsAttribute(attribute = "", description = "")})
 @WritesAttributes({@WritesAttribute(attribute = "", description = "")})
 public class CustomKafkaProcessor extends AbstractProcessor {
+    
+    private static final byte[] EMPTY_JSON_OBJECT = "{}".getBytes(StandardCharsets.UTF_8);
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("REL_SUCCESS")
@@ -86,7 +94,68 @@ public class CustomKafkaProcessor extends AbstractProcessor {
 
     }
 
+    //TODO: tmp
     @Override
+    public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
+
+        final GenericData genericData = GenericData.get();
+        FlowFile flowFile = session.get();
+        if (flowFile == null) {
+            return;
+        }
+
+        try {
+            flowFile = session.write(flowFile, (rawIn, rawOut) -> {
+                try (final InputStream in = new BufferedInputStream(rawIn);
+                     final OutputStream out = new BufferedOutputStream(rawOut);
+                     final DataFileStream<GenericRecord> reader = new DataFileStream<>(in, new GenericDatumReader<GenericRecord>())) {
+
+                    //int recordCount = 0;
+                    GenericRecord currRecord = null;
+                    if (reader.hasNext()) {
+                        currRecord = reader.next();
+                        //recordCount++;
+                    }
+
+                    // Open container if desired output is an array format and there are are multiple records or
+                    // if configured to wrap single record
+                    /*if (reader.hasNext()) {
+                        out.write('[');
+                    }*/
+
+                    // Determine the initial output record, inclusive if we should have an empty set of Avro records
+                    final byte[] outputBytes = (currRecord == null) ? EMPTY_JSON_OBJECT : genericData.toString(currRecord).getBytes(StandardCharsets.UTF_8);
+                    out.write(outputBytes);
+                    /*while (reader.hasNext()) {
+                        if (useContainer) {
+                            out.write(',');
+                        } else {
+                            out.write('\n');
+                        }
+
+                        currRecord = reader.next(currRecord);
+                        out.write(genericData.toString(currRecord).getBytes(StandardCharsets.UTF_8));
+                        recordCount++;
+                    }*/
+
+                    // Close container if desired output is an array format and there are multiple records or if
+                    // configured to wrap a single record
+                    /*if (recordCount > 1 && useContainer || wrapSingleRecord) {
+                        out.write(']');
+                    }*/
+                }
+            });
+        } catch (ProcessException pe) {
+            getLogger().error("Failed to deserialize {}", new Object[]{flowFile, pe});
+            session.transfer(flowFile, REL_FAILURE);
+            return;
+        }
+
+        flowFile = session.putAttribute(flowFile, CoreAttributes.MIME_TYPE.key(), "application/json");
+        session.transfer(flowFile, REL_SUCCESS);
+    }
+
+    /*@Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
 
         final FlowFile flowFile = session.get();
@@ -120,7 +189,7 @@ public class CustomKafkaProcessor extends AbstractProcessor {
             });
             consumer.commitSync();
         }
-    }
+    }*/
 
     private static KafkaConsumer<GenericRecord, GenericData.Record> createConsumer() {
         KafkaConsumer<GenericRecord, GenericData.Record> consumer = new KafkaConsumer<>(configConsumerProperties());
