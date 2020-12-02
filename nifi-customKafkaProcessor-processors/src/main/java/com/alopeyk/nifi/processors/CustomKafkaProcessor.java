@@ -84,12 +84,13 @@ public class CustomKafkaProcessor extends AbstractProcessor {
         try{
             final ConsumerRecords<byte[], byte[]> records = consumer.poll(1000);
             records.forEach(record -> {
-                getLogger().error(Long.toString(record.offset()));
                 FlowFile flowFile = session.create();
                 if (flowFile == null)
                     return;
                 try {
-                    byte[] outputBytes = (record == null) ? EMPTY_JSON_OBJECT : genericData.toString(record).getBytes(StandardCharsets.UTF_8);
+                    //whole avro recrod in text
+                    //byte[] outputBytes = (record == null) ? EMPTY_JSON_OBJECT : genericData.toString(record).getBytes(StandardCharsets.UTF_8);
+                    byte[] outputBytes = (record == null) ? EMPTY_JSON_OBJECT : genericData.toString(record.value()).getBytes(StandardCharsets.UTF_8);
                     flowFile = session.write(flowFile, rawOut -> {
                         //final OutputStream out = new BufferedOutputStream(rawOut);
                         rawOut.write(outputBytes);
@@ -101,7 +102,6 @@ public class CustomKafkaProcessor extends AbstractProcessor {
                     return;
                 }
                 flowFile = session.putAttribute(flowFile, CoreAttributes.MIME_TYPE.key(), "application/json");
-                getLogger().error("before transfer");
                 session.transfer(flowFile, REL_SUCCESS);
             });
         }catch (Exception e) {
@@ -129,7 +129,7 @@ public class CustomKafkaProcessor extends AbstractProcessor {
         consumerProperties.put(ConsumerConfig.GROUP_ID_CONFIG, "nifiKafkaConsumerTEST2");
         consumerProperties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
         consumerProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
-        consumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        //consumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
         return consumerProperties;
     }
