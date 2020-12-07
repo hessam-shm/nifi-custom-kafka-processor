@@ -4,6 +4,7 @@ import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroSerializerConfig;
 import org.apache.avro.generic.GenericData;
 import org.apache.kafka.clients.consumer.*;
+import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.annotation.behavior.ReadsAttribute;
@@ -21,9 +22,11 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.ProcessorInitializationContext;
 import org.apache.nifi.processor.Relationship;
+import org.apache.nifi.processor.util.StandardValidators;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.regex.Pattern;
 
 @Tags({"customKafkaProcessor"})
 @CapabilityDescription("Consume avro files of kafka and produces json")
@@ -44,6 +47,45 @@ public class CustomKafkaProcessor extends AbstractProcessor {
             .description("A Flowfile is routed to this relationship it can not be parsed or a problem happens")
             .build();
 
+    public static final PropertyDescriptor TOPICS = new PropertyDescriptor.Builder()
+            .name("Topics").description("Topic names. Accepts String or regular expression.")
+            .required(true)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
+    public static final PropertyDescriptor SCHEMA_REGISTRY = new PropertyDescriptor.Builder()
+            .name("Schema Registry").description("Kafka Schema registry url")
+            .required(true)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
+    public static final PropertyDescriptor BOOTSTRAP_SERVER = new PropertyDescriptor.Builder()
+            .name("Bootstrap Server").description("Kafka bootstrap server url. Accepts one or a comma " +
+                    "separated list of addresses")
+            .required(true)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
+    public static final PropertyDescriptor GROUP_ID = new PropertyDescriptor.Builder()
+            .name("Group Id").description("Kafka consumer group id")
+            .required(true)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
+    static final AllowableValue TOPIC_NAME = new AllowableValue("names", "names", "Topic is a full topic name or comma separated list of names");
+
+    static final AllowableValue TOPIC_PATTERN = new AllowableValue("pattern", "pattern", "Topic is a regex using the Java Pattern syntax");
+
+    static final PropertyDescriptor TOPIC_TYPE = new PropertyDescriptor.Builder()
+            .name("topic_type")
+            .displayName("Topic Name Format")
+            .description("Specifies whether the Topic(s) provided are a comma separated list of names or a single regular expression")
+            .required(true)
+            .allowableValues(TOPIC_NAME, TOPIC_PATTERN)
+            .defaultValue(TOPIC_NAME.getValue())
+            .build();
+
+
     private List<PropertyDescriptor> descriptors;
 
     private Set<Relationship> relationships;
@@ -51,7 +93,11 @@ public class CustomKafkaProcessor extends AbstractProcessor {
     @Override
     protected void init(final ProcessorInitializationContext context) {
         final List<PropertyDescriptor> descriptors = new ArrayList<PropertyDescriptor>();
-
+        descriptors.add(TOPICS);
+        descriptors.add(TOPIC_TYPE);
+        descriptors.add(SCHEMA_REGISTRY);
+        descriptors.add(BOOTSTRAP_SERVER);
+        descriptors.add(GROUP_ID);
         this.descriptors = Collections.unmodifiableList(descriptors);
 
         final Set<Relationship> relationships = new HashSet<Relationship>();
@@ -79,12 +125,12 @@ public class CustomKafkaProcessor extends AbstractProcessor {
 
 
         final GenericData genericData = GenericData.get();
-        Consumer<byte[], byte[]> consumer = createKafkaConsumer();
-        getLogger().error(Long.toString(consumer.listTopics().size()));
+        Consumer<byte[], byte[]> consumer = createKafkaConsumer(context);
         try{
             final ConsumerRecords<byte[], byte[]> records = consumer.poll(1000);
             records.forEach(record -> {
                 FlowFile flowFile = session.create();
+                flowFile = session.putAttribute(flowFile,"topic",record.topic());
                 if (flowFile == null)
                     return;
                 try {
@@ -112,23 +158,27 @@ public class CustomKafkaProcessor extends AbstractProcessor {
 
     }
 
-    public Consumer<byte[],byte[]> createKafkaConsumer(){
-        final Consumer<byte[], byte[]> consumer = new KafkaConsumer<>(configConsumerProperties());
-        consumer.subscribe(Collections.singletonList("mysql.alopeyk.orders"));
+    public Consumer<byte[],byte[]> createKafkaConsumer(final ProcessContext context){
+        final Consumer<byte[], byte[]> consumer = new KafkaConsumer<>(configConsumerProperties(context));
+        if(context.getProperty(TOPIC_TYPE).getValue().equalsIgnoreCase("pattern"))
+            consumer.subscribe(Pattern.compile(context.getProperty(TOPICS).getValue()));
+        if(context.getProperty(TOPIC_TYPE).getValue().equalsIgnoreCase("names"))
+            consumer.subscribe(Arrays.asList(context.getProperty("topics").getValue().split(",")));
         return consumer;
     }
 
-    private static Properties configConsumerProperties() {
+    private static Properties configConsumerProperties(final ProcessContext context) {
 
         Properties consumerProperties = new Properties();
 
-        consumerProperties.put(KafkaAvroSerializerConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://172.16.2.220:8081");
-        consumerProperties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "http://172.16.2.231:9092," +
-                "http://172.16.2.232:9092,http://172.16.2.220:9092,http://172.16.2.221:9092," +
-                "http://172.16.2.205:9092,http://172.16.2.219:9092");
-        consumerProperties.put(ConsumerConfig.GROUP_ID_CONFIG, "nifiKafkaConsumerTEST2");
+        consumerProperties.put(KafkaAvroSerializerConfig.SCHEMA_REGISTRY_URL_CONFIG,
+                context.getProperty(SCHEMA_REGISTRY).getValue());
+        consumerProperties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                context.getProperty(BOOTSTRAP_SERVER).getValue());
+        consumerProperties.put(ConsumerConfig.GROUP_ID_CONFIG, context.getProperty(GROUP_ID).getValue());
         consumerProperties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
         consumerProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
+        //TODO:can become dynamic based on properties as well
         //consumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
         return consumerProperties;
