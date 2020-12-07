@@ -163,7 +163,7 @@ public class CustomKafkaProcessor extends AbstractProcessor {
         if(context.getProperty(TOPIC_TYPE).getValue().equalsIgnoreCase("pattern"))
             consumer.subscribe(Pattern.compile(context.getProperty(TOPICS).getValue()));
         if(context.getProperty(TOPIC_TYPE).getValue().equalsIgnoreCase("names"))
-            consumer.subscribe(Arrays.asList(context.getProperty("topics").getValue().split(",")));
+            consumer.subscribe(Arrays.asList(context.getProperty(TOPICS).getValue().split(",")));
         return consumer;
     }
 
