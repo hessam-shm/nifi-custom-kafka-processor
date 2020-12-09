@@ -4,6 +4,7 @@ import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroSerializerConfig;
 import org.apache.avro.generic.GenericData;
 import org.apache.kafka.clients.consumer.*;
+import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
@@ -34,7 +35,8 @@ import java.util.regex.Pattern;
 @ReadsAttributes({@ReadsAttribute(attribute = "", description = "")})
 @WritesAttributes({@WritesAttribute(attribute = "", description = "")})
 public class CustomKafkaProcessor extends AbstractProcessor {
-    
+
+    Consumer<byte[], byte[]> consumer;
     private static final byte[] EMPTY_JSON_OBJECT = "{}".getBytes(StandardCharsets.UTF_8);
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
@@ -49,25 +51,28 @@ public class CustomKafkaProcessor extends AbstractProcessor {
 
     public static final PropertyDescriptor TOPICS = new PropertyDescriptor.Builder()
             .name("Topics").description("Topic names. Accepts String or regular expression.")
+            .displayName("Topics")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor SCHEMA_REGISTRY = new PropertyDescriptor.Builder()
-            .name("Schema Registry").description("Kafka Schema registry url")
+            .name("schemaRegistry").description("Kafka Schema registry url")
+            .displayName("Schema Registry")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor BOOTSTRAP_SERVER = new PropertyDescriptor.Builder()
-            .name("Bootstrap Server").description("Kafka bootstrap server url. Accepts one or a comma " +
-                    "separated list of addresses")
+            .name("bootstrapServer").description("Kafka bootstrap server url. Accepts one or a comma " +
+                    "separated list of addresses").displayName("Bootstrap Server")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor GROUP_ID = new PropertyDescriptor.Builder()
-            .name("Group Id").description("Kafka consumer group id")
+            .name("groupId").description("Kafka consumer group id")
+            .displayName("Group ID")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
@@ -123,16 +128,15 @@ public class CustomKafkaProcessor extends AbstractProcessor {
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
 
-
         final GenericData genericData = GenericData.get();
-        Consumer<byte[], byte[]> consumer = createKafkaConsumer(context);
+        consumer = createKafkaConsumer(context);
         try{
             final ConsumerRecords<byte[], byte[]> records = consumer.poll(1000);
             records.forEach(record -> {
                 FlowFile flowFile = session.create();
-                flowFile = session.putAttribute(flowFile,"topic",record.topic());
-                if (flowFile == null)
+                if (flowFile == null) {
                     return;
+                }
                 try {
                     //whole avro recrod in text
                     //byte[] outputBytes = (record == null) ? EMPTY_JSON_OBJECT : genericData.toString(record).getBytes(StandardCharsets.UTF_8);
@@ -147,6 +151,7 @@ public class CustomKafkaProcessor extends AbstractProcessor {
                     session.transfer(flowFile, REL_FAILURE);
                     return;
                 }
+                flowFile = session.putAttribute(flowFile,"topic",record.topic());
                 flowFile = session.putAttribute(flowFile, CoreAttributes.MIME_TYPE.key(), "application/json");
                 session.transfer(flowFile, REL_SUCCESS);
             });
@@ -155,7 +160,11 @@ public class CustomKafkaProcessor extends AbstractProcessor {
             e.printStackTrace();
             return;
         }
+    }
 
+    @OnStopped
+    public void close(){
+        consumer.close();
     }
 
     public Consumer<byte[],byte[]> createKafkaConsumer(final ProcessContext context){
