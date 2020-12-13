@@ -78,7 +78,6 @@ public class CustomKafkaProcessor extends AbstractProcessor {
             .build();
 
     static final AllowableValue TOPIC_NAME = new AllowableValue("names", "names", "Topic is a full topic name or comma separated list of names");
-
     static final AllowableValue TOPIC_PATTERN = new AllowableValue("pattern", "pattern", "Topic is a regex using the Java Pattern syntax");
 
     static final PropertyDescriptor TOPIC_TYPE = new PropertyDescriptor.Builder()
@@ -90,6 +89,17 @@ public class CustomKafkaProcessor extends AbstractProcessor {
             .defaultValue(TOPIC_NAME.getValue())
             .build();
 
+    static final AllowableValue OFFSET_EARLIEST = new AllowableValue("earliest",
+            "earliest","Consumer offsett sets to earliest");
+    static final AllowableValue OFFSET_LATEST = new AllowableValue("latest",
+            "latest", "Consumer offsett sets to latest");
+
+    static final PropertyDescriptor OFFSET_RESET = new PropertyDescriptor.Builder()
+            .name("offset_reset").displayName("Consumer offset reset")
+            .description("Sets Kafka consumer offset").required(false)
+            .allowableValues(OFFSET_EARLIEST,OFFSET_LATEST)
+            .defaultValue(OFFSET_LATEST.getValue())
+            .build();
 
     private List<PropertyDescriptor> descriptors;
 
@@ -103,6 +113,7 @@ public class CustomKafkaProcessor extends AbstractProcessor {
         descriptors.add(SCHEMA_REGISTRY);
         descriptors.add(BOOTSTRAP_SERVER);
         descriptors.add(GROUP_ID);
+        descriptors.add(OFFSET_RESET);
         this.descriptors = Collections.unmodifiableList(descriptors);
 
         final Set<Relationship> relationships = new HashSet<Relationship>();
@@ -125,12 +136,13 @@ public class CustomKafkaProcessor extends AbstractProcessor {
     public void onScheduled(final ProcessContext context) {
 
     }
+
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
 
         final GenericData genericData = GenericData.get();
         consumer = createKafkaConsumer(context);
-        try{
+        try {
             final ConsumerRecords<byte[], byte[]> records = consumer.poll(1000);
             records.forEach(record -> {
                 FlowFile flowFile = session.create();
@@ -146,16 +158,16 @@ public class CustomKafkaProcessor extends AbstractProcessor {
                         rawOut.write(outputBytes);
                         consumer.commitSync();
                     });
-                }catch (ProcessException pe) {
+                } catch (ProcessException pe) {
                     getLogger().error("Failed to deserialize {}", new Object[]{flowFile, pe});
                     session.transfer(flowFile, REL_FAILURE);
                     return;
                 }
-                flowFile = session.putAttribute(flowFile,"topic",record.topic());
+                flowFile = session.putAttribute(flowFile, "topic", record.topic());
                 flowFile = session.putAttribute(flowFile, CoreAttributes.MIME_TYPE.key(), "application/json");
                 session.transfer(flowFile, REL_SUCCESS);
             });
-        }catch (Exception e) {
+        } catch (Exception e) {
             getLogger().error(e.getMessage());
             e.printStackTrace();
             return;
@@ -163,15 +175,15 @@ public class CustomKafkaProcessor extends AbstractProcessor {
     }
 
     @OnStopped
-    public void close(){
+    public void close() {
         consumer.close();
     }
 
-    public Consumer<byte[],byte[]> createKafkaConsumer(final ProcessContext context){
+    public Consumer<byte[], byte[]> createKafkaConsumer(final ProcessContext context) {
         final Consumer<byte[], byte[]> consumer = new KafkaConsumer<>(configConsumerProperties(context));
-        if(context.getProperty(TOPIC_TYPE).getValue().equalsIgnoreCase("pattern"))
+        if (context.getProperty(TOPIC_TYPE).getValue().equalsIgnoreCase("pattern"))
             consumer.subscribe(Pattern.compile(context.getProperty(TOPICS).getValue()));
-        if(context.getProperty(TOPIC_TYPE).getValue().equalsIgnoreCase("names"))
+        if (context.getProperty(TOPIC_TYPE).getValue().equalsIgnoreCase("names"))
             consumer.subscribe(Arrays.asList(context.getProperty(TOPICS).getValue().split(",")));
         return consumer;
     }
@@ -187,8 +199,8 @@ public class CustomKafkaProcessor extends AbstractProcessor {
         consumerProperties.put(ConsumerConfig.GROUP_ID_CONFIG, context.getProperty(GROUP_ID).getValue());
         consumerProperties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
         consumerProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
-        //TODO:can become dynamic based on properties as well
-        //consumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        consumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
+                context.getProperty(OFFSET_RESET).getValue());
 
         return consumerProperties;
     }
