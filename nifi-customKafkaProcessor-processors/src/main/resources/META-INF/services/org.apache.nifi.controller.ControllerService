@@ -12,7 +12,4 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-com.alopeyk.nifi.processors.kafka.pubsub.PublishKafka_2_6
-com.alopeyk.nifi.processors.kafka.pubsub.PublishKafkaRecord_2_6
-com.alopeyk.nifi.processors.kafka.pubsub.ConsumeKafka_2_6
-com.alopeyk.nifi.processors.kafka.pubsub.ConsumeKafkaRecord_2_6
+com.alopeyk.nifi.record.sink.kafka.KafkaRecordSink_2_6
